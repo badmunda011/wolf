@@ -1,13 +1,15 @@
 import json
 import random
 import asyncio
+import os
 from TEAMZYRO import *
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-
-# Load words from JSON file
-with open("sukh.json", "r") as f:
+# --- Use correct path for sukh.json ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WORDS_PATH = os.path.join(BASE_DIR, "../../sukh.json")
+with open(WORDS_PATH, "r", encoding="utf-8") as f:
     WORDS = set([w.strip().lower() for w in json.load(f)])
 
 games = {}  # chat_id: game_data
@@ -54,23 +56,30 @@ async def play_game(client, message: Message):
         "🎮 Duo Word Game started!\nWaiting for another player to join...",
         reply_markup=get_keyboard(game_id, "join")
     )
-    games[chat_id]["message_id"] = msg.message_id
+    games[chat_id]["message_id"] = msg.id  # <-- FIXED HERE
 
-@app.on_callback_query(filters.regex(r"^join:(\d+)$"))
+# Regex: digits ke alawa string bhi accept kare
+@app.on_callback_query(filters.regex(r"^join:(.+)$"))
 async def join_game(client, cq: CallbackQuery):
-    chat_id = int(cq.matches[0].group(1))
+    game_id = cq.matches[0].group(1)
+    chat_id = int(game_id)
     user_id = cq.from_user.id
+
     if chat_id not in games or games[chat_id]["status"] != "waiting":
         await cq.answer("No game to join!", show_alert=True)
         return
     if user_id in games[chat_id]["players"]:
         await cq.answer("You already joined!", show_alert=True)
         return
+    if len(games[chat_id]["players"]) >= 2:
+        await cq.answer("Game is full!", show_alert=True)
+        return
+
     games[chat_id]["players"].append(user_id)
     games[chat_id]["status"] = "running"
     await cq.edit_message_text(
         "2nd player joined! Let's start!\n",
-        reply_markup=get_keyboard(chat_id, "wait")
+        reply_markup=get_keyboard(game_id, "wait")
     )
     await asyncio.sleep(1)
     await start_game(client, chat_id)
@@ -78,12 +87,20 @@ async def join_game(client, cq: CallbackQuery):
 async def start_game(client, chat_id):
     game = games[chat_id]
     word = get_random_word(game["used_words"])
+    if not word:
+        await client.send_message(chat_id, "No words available to start the game! Please update sukh.json.")
+        games[chat_id]["status"] = "ended"
+        return
     game["last_word"] = word
     game["last_letter"] = word[-1]
     game["used_words"].add(word)
     turn = game["turn"]
     player = game["players"][turn % 2]
-    await client.send_message(chat_id, f"Game started!\nFirst word: <b>{word.capitalize()}</b>\n\n{await mention_player(client, player)}'s turn. Send a word starting with <b>{word[-1].upper()}</b> (15 seconds!)")
+    await client.send_message(
+        chat_id,
+        f"Game started!\nFirst word: <b>{word.capitalize()}</b>\n\n{await mention_player(client, player)}'s turn. Send a word starting with <b>{word[-1].upper()}</b> (15 seconds!)",
+        parse_mode="html"
+    )
     game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, player, 15))
 
 async def word_timeout(client, chat_id, player, timeout):
@@ -93,14 +110,18 @@ async def word_timeout(client, chat_id, player, timeout):
     game = games[chat_id]
     loser = player
     winner = [p for p in game["players"] if p != loser][0]
-    await client.send_message(chat_id, f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n🏆 {await mention_player(client, winner)} wins!")
+    await client.send_message(chat_id, f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n🏆 {await mention_player(client, winner)} wins!", parse_mode="html")
     game["status"] = "ended"
+    # Cancel timeout task
+    if game.get("timeout_task"):
+        game["timeout_task"].cancel()
+        game["timeout_task"] = None
 
 async def mention_player(client, user_id):
     user = await client.get_users(user_id)
     return f'<a href="tg://user?id={user_id}">{user.first_name}</a>'
 
-@app.on_message(filters.text & ~filters.command(["play"]))
+@app.on_message(filters.text & ~filters.command(["play", "end"]))
 async def handle_word(client, message: Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
@@ -120,8 +141,9 @@ async def handle_word(client, message: Message):
         await message.reply(f"Invalid word!\n- Must start with '{last_letter.upper()}'\n- Must be in the word list\n- Must not be repeated")
         return
     # Cancel timeout
-    if game["timeout_task"]:
+    if game.get("timeout_task"):
         game["timeout_task"].cancel()
+        game["timeout_task"] = None
     game["used_words"].add(word)
     game["last_word"] = word
     game["last_letter"] = word[-1]
@@ -136,7 +158,8 @@ async def handle_word(client, message: Message):
     next_player = game["players"][game["turn"] % 2]
     await client.send_message(
         chat_id,
-        f"<b>{word.capitalize()}</b> accepted!\nNow {await mention_player(client, next_player)}'s turn. Send a word starting with <b>{game['last_letter'].upper()}</b> (15 seconds!)"
+        f"<b>{word.capitalize()}</b> accepted!\nNow {await mention_player(client, next_player)}'s turn. Send a word starting with <b>{game['last_letter'].upper()}</b> (15 seconds!)",
+        parse_mode="html"
     )
     game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, next_player, 15))
 
@@ -145,7 +168,10 @@ async def end_game(client, message: Message):
     chat_id = message.chat.id
     if chat_id in games and games[chat_id]["status"] != "ended":
         games[chat_id]["status"] = "ended"
+        # Cancel timeout if exists
+        if games[chat_id].get("timeout_task"):
+            games[chat_id]["timeout_task"].cancel()
+            games[chat_id]["timeout_task"] = None
         await message.reply("Game ended!")
     else:
         await message.reply("No active game to end.")
-
