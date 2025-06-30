@@ -28,7 +28,7 @@ def LOGGER(name: str) -> logging.Logger:
 api_id = os.getenv("API_ID", "24965086")
 api_hash = os.getenv("API_HASH", "b9c764ce47c010e1a887f19fea54f648")
 TOKEN = os.getenv("TOKEN", "7631937603:AAFv9b_PGbdarVjc6kOmApDCpxeqQ8UOGVw")
-GLOG = os.getenv("GLOG", "Zlog12")
+GLOG = os.getenv("GLOG", "testbotbad")
 CHARA_CHANNEL_ID = os.getenv("CHARA_CHANNEL_ID", "-1002400823238")
 SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "-1002093247039")
 mongo_url = os.getenv("MONGO_URL", "mongodb+srv://Alisha:Alisha123@cluster0.yqcpftw.mongodb.net/?retryWrites=true&w=majority")
