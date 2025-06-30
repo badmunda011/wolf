@@ -6,6 +6,7 @@ import random
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from TEAMZYRO import user_collection
+from TEAMZYRO import app
 
 # --- Use correct path for sukh.json ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
