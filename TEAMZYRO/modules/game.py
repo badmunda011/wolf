@@ -6,7 +6,6 @@ from TEAMZYRO import *
 from pyrogram import filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# --- Use correct path for sukh.json ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORDS_PATH = os.path.join(BASE_DIR, "../../sukh.json")
 with open(WORDS_PATH, "r", encoding="utf-8") as f:
@@ -15,7 +14,7 @@ with open(WORDS_PATH, "r", encoding="utf-8") as f:
 games = {}  # chat_id: game_data
 
 def get_random_word(used_words):
-    available = list(WORDS - used_words)
+    available = [w for w in WORDS if 3 <= len(w) <= 6 and w not in used_words]
     return random.choice(available) if available else None
 
 def is_valid_word(word, last_letter, used_words):
@@ -23,7 +22,9 @@ def is_valid_word(word, last_letter, used_words):
     return (
         word in WORDS and
         word not in used_words and
-        word[0] == last_letter
+        word[0] == last_letter and
+        3 <= len(word) <= 6 and
+        " " not in word
     )
 
 def get_keyboard(game_id, action):
@@ -70,7 +71,8 @@ async def choose_players_callback(client, cq: CallbackQuery):
         "last_word": None,
         "last_letter": None,
         "timeout_task": None,
-        "message_id": None
+        "message_id": None,
+        "scores": {user_id: 0 for user_id in [user_id]}
     }
     msg = await cq.edit_message_text(
         f"🎮 Word Game: {num_players} players mode!\nWaiting for others to join...\nClick below to join!",
@@ -95,6 +97,7 @@ async def join_game(client, cq: CallbackQuery):
         return
 
     games[chat_id]["players"].append(user_id)
+    games[chat_id]["scores"][user_id] = 0
     left = games[chat_id]["needed"] - len(games[chat_id]["players"])
     if left > 0:
         await cq.edit_message_text(
@@ -122,6 +125,7 @@ async def start_game(client, chat_id):
     game["used_words"].add(word)
     turn = game["turn"]
     player = game["players"][turn % len(game["players"])]
+    game["turn_start_time"] = asyncio.get_event_loop().time()
     await client.send_message(
         chat_id,
         f"Game started!\nFirst word: <b>{word.capitalize()}</b>\n\n{await mention_player(client, player)}'s turn. Send a word starting with <b>{word[-1].upper()}</b> (35 seconds!)",
@@ -138,13 +142,50 @@ async def word_timeout(client, chat_id, player, timeout):
         game["timeout_task"].cancel()
         game["timeout_task"] = None
     loser = player
-    # Winner is the next person in turn order
     idx = game["players"].index(loser)
-    remaining = [p for i, p in enumerate(game["players"]) if i != idx]
-    winner = remaining[game["turn"] % len(remaining)] if remaining else None
+    # Remove loser from the game for next turn calculation
+    remaining_players = [p for i, p in enumerate(game["players"]) if i != idx]
+    num_players = len(game["players"])
+    winner = None
+
+    # Coin/scoring system
+    if num_players == 2:
+        winner = remaining_players[0] if remaining_players else None
+        if winner:
+            game["scores"][winner] += 50
+        game["scores"][loser] = 0
+        score_text = f"{await mention_player(client, winner)} wins and gets 50 coins!\n{await mention_player(client, loser)} gets 0 coins."
+    elif num_players == 4:
+        # Distribute 50 coins by speed
+        turn_end_time = asyncio.get_event_loop().time()
+        game["scores"][loser] = 0
+        winner_idx = (game["turn"] + 1) % len(remaining_players)
+        winner = remaining_players[winner_idx] if remaining_players else None
+
+        # Calculate time taken by each player, assign coins
+        total_time = 0
+        times = {}
+        # For this simple version, just assign coins based on turns: whoever played more turns gets more coins
+        for uid in remaining_players:
+            times[uid] = game.get(f"user_time_{uid}", 0)
+            total_time += times[uid]
+        if total_time == 0:
+            # If no time tracked, give 17 coins to each (50/3 rounded)
+            for uid in remaining_players:
+                game["scores"][uid] += 17
+        else:
+            for uid in remaining_players:
+                coins = min(50, max(1, int((1 - (times[uid] / total_time)) * 50)))
+                game["scores"][uid] += coins
+        score_text = "Coin Distribution:\n"
+        for uid in remaining_players:
+            score_text += f"{await mention_player(client, uid)}: {game['scores'][uid]} coins\n"
+        score_text += f"\n{await mention_player(client, loser)} gets 0 coins."
+    else:
+        score_text = ""
     await client.send_message(
         chat_id,
-        f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n🏆 {await mention_player(client, winner)} wins!",
+        f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n{score_text}"
     )
     game["status"] = "ended"
 
@@ -161,10 +202,17 @@ async def handle_word(client, message: Message):
     game = games[chat_id]
     num_players = len(game["players"])
     player = game["players"][game["turn"] % num_players]
+    # Ignore messages that are not from the player whose turn it is
     if user_id != player:
-        await message.reply("It's not your turn!")
         return
+
     word = message.text.strip().lower()
+    # Only allow words of length 3 to 6, no space allowed, ignore "hello kive a" etc.
+    if not (3 <= len(word) <= 6):
+        return
+    if " " in word:
+        return
+
     last_letter = game["last_letter"]
     if word in game["used_words"]:
         await message.reply("This word has already been used! Choose a different word.")
@@ -176,14 +224,21 @@ async def handle_word(client, message: Message):
     if game.get("timeout_task"):
         game["timeout_task"].cancel()
         game["timeout_task"] = None
+    # Time calculation for scoring
+    now_time = asyncio.get_event_loop().time()
+    turn_time = now_time - game.get("turn_start_time", now_time)
+    game[f"user_time_{user_id}"] = game.get(f"user_time_{user_id}", 0) + turn_time
+
     game["used_words"].add(word)
     game["last_word"] = word
     game["last_letter"] = word[-1]
     game["turn"] += 1
+    game["turn_start_time"] = asyncio.get_event_loop().time()
     # Check if any possible next word exists
-    possible = [w for w in WORDS if w not in game["used_words"] and w[0] == game["last_letter"]]
+    possible = [w for w in WORDS if w not in game["used_words"] and w[0] == game["last_letter"] and 3 <= len(w) <= 6]
     if not possible:
         await message.reply(f"No more possible words!\n🏆 {await mention_player(client, user_id)} wins!")
+        game["scores"][user_id] += 50  # winner gets 50
         game["status"] = "ended"
         return
     # Next turn
