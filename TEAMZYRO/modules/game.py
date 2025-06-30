@@ -13,6 +13,8 @@ with open(WORDS_PATH, "r", encoding="utf-8") as f:
 
 games = {}  # chat_id: game_data
 
+TIMEOUT_SECONDS = 25  # <-- Bas yahan se timeout control hoga
+
 def get_random_word(used_words):
     available = [w for w in WORDS if 3 <= len(w) <= 6 and w not in used_words]
     return random.choice(available) if available else None
@@ -128,10 +130,10 @@ async def start_game(client, chat_id):
     game["turn_start_time"] = asyncio.get_event_loop().time()
     await client.send_message(
         chat_id,
-        f"Game started!\nFirst word: <b>{word.capitalize()}</b>\n\n{await mention_player(client, player)}'s turn. Send a word starting with <b>{word[-1].upper()}</b> (35 seconds!)",
+        f"Game started!\nFirst word: <b>{word.capitalize()}</b>\n\n{await mention_player(client, player)}'s turn. Send a word starting with <b>{word[-1].upper()}</b> ({TIMEOUT_SECONDS} seconds!)",
     )
     # Start timeout for first turn
-    game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, player, 35))
+    game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, player, TIMEOUT_SECONDS))
 
 async def word_timeout(client, chat_id, player, timeout):
     await asyncio.sleep(timeout)
@@ -245,9 +247,9 @@ async def handle_word(client, message: Message):
     next_player = game["players"][game["turn"] % num_players]
     await client.send_message(
         chat_id,
-        f"<b>{word.capitalize()}</b> accepted!\nNow {await mention_player(client, next_player)}'s turn. Send a word starting with <b>{game['last_letter'].upper()}</b> (35 seconds!)",
+        f"<b>{word.capitalize()}</b> accepted!\nNow {await mention_player(client, next_player)}'s turn. Send a word starting with <b>{game['last_letter'].upper()}</b> ({TIMEOUT_SECONDS} seconds!)",
     )
-    game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, next_player, 35))
+    game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, next_player, TIMEOUT_SECONDS))
 
 @app.on_message(filters.command("end"))
 async def end_game(client, message: Message):
