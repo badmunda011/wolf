@@ -1,122 +1,94 @@
-from pyrogram import Client, filters, enums  
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import random
-import asyncio
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime, timedelta
+from TEAMZYRO import app, user_collection
 import html
-from TEAMZYRO import app as Client
-from TEAMZYRO import user_collection, top_global_groups_collection
 
-PHOTO_URL = ["https://files.catbox.moe/20xca5.jpg"]  
+FILTERS = {
+    "all_time": "All Time",
+    "today": "Today",
+    "this_week": "This Week",
+    "this_month": "This Month",
+    "this_year": "This Year",
+    "this_chat": "This Chat"
+}
 
-@Client.on_message(filters.command("rank"))
-async def rank(client, message):
-    cursor = user_collection.find({}, {"_id": 0, "id": 1, "first_name": 1, "characters": 1})
-    leaderboard_data = await cursor.to_list(length=None)
-    leaderboard_data.sort(key=lambda x: len(x.get('characters', [])), reverse=True)
-    leaderboard_data = leaderboard_data[:10]
+def get_time_filter(filter_key):
+    now = datetime.utcnow()
+    if filter_key == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif filter_key == "this_week":
+        return now - timedelta(days=now.weekday())
+    elif filter_key == "this_month":
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif filter_key == "this_year":
+        return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    return None  # all time
 
-    leaderboard_message = "<b>TOP 10 USERS WITH MOST CHARACTERS</b>\n\n"
-    for i, user in enumerate(leaderboard_data, start=1):
-        user_id = user.get('id', 'Unknown')
-        first_name = html.escape(user.get('first_name', 'Unknown'))[:15] + '...'
-        character_count = len(user.get('characters', []))
-        leaderboard_message += f'{i}. <a href="tg://user?id={user_id}"><b>{first_name}</b></a> ➾ <b>{character_count}</b>\n'
-
-    buttons = [
+def leaderboard_buttons(active):
+    return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✅ Top", callback_data="top"),
-            InlineKeyboardButton("Top Group", callback_data="top_group"),
+            InlineKeyboardButton(
+                ("✅ " if active == "all_time" else "") + "All Time", callback_data="lb_all_time"),
+            InlineKeyboardButton(
+                ("✅ " if active == "today" else "") + "Today", callback_data="lb_today"),
+            InlineKeyboardButton(
+                ("✅ " if active == "this_week" else "") + "This Week", callback_data="lb_this_week"),
         ],
         [
-            InlineKeyboardButton("MTOP", callback_data="mtop"),
-            InlineKeyboardButton("Tokens", callback_data="tokens"),
-        ],
-    ]
-
-    await message.reply_photo(
-        photo=random.choice(PHOTO_URL),
-        caption=leaderboard_message,
-        parse_mode=enums.ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-async def update_caption(callback_query, caption, active_button):
-    buttons = [
-        [
-            InlineKeyboardButton("✅ Top" if active_button == "top" else "Top", callback_data="top"),
-            InlineKeyboardButton("✅ Top Group" if active_button == "top_group" else "Top Group", callback_data="top_group"),
-        ],
-        [
-            InlineKeyboardButton("✅ MTOP" if active_button == "mtop" else "MTOP", callback_data="mtop"),
-            InlineKeyboardButton("✅ Tokens" if active_button == "tokens" else "Tokens", callback_data="tokens"),
-        ],
-    ]
-
-    await callback_query.edit_message_caption(
-        caption=caption,
-        parse_mode=enums.ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-@Client.on_callback_query(filters.regex("^top$"))
-async def top_callback(client, callback_query):
-    await asyncio.sleep(1)
-    cursor = user_collection.find({}, {"_id": 0, "id": 1, "first_name": 1, "characters": 1})
-    leaderboard_data = await cursor.to_list(length=None)
-    leaderboard_data.sort(key=lambda x: len(x.get('characters', [])), reverse=True)
-    leaderboard_data = leaderboard_data[:10]
-
-    caption = "<b>TOP 10 USERS WITH MOST CHARACTERS</b>\n\n"
-    for i, user in enumerate(leaderboard_data, start=1):
-        user_id = user.get('id', 'Unknown')
-        first_name = html.escape(user.get('first_name', 'Unknown'))[:15] + '...'
-        character_count = len(user.get('characters', []))
-        caption += f'{i}. <a href="tg://user?id={user_id}"><b>{first_name}</b></a> ➾ <b>{character_count}</b>\n'
-
-    await update_caption(callback_query, caption, "top")
-
-@Client.on_callback_query(filters.regex("^top_group$"))
-async def top_group_callback(client, callback_query):
-    await asyncio.sleep(1)
-    cursor = top_global_groups_collection.aggregate([
-        {"$project": {"group_name": 1, "count": 1}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10}
+            InlineKeyboardButton(
+                ("✅ " if active == "this_month" else "") + "This Month", callback_data="lb_this_month"),
+            InlineKeyboardButton(
+                ("✅ " if active == "this_year" else "") + "This Year", callback_data="lb_this_year"),
+            InlineKeyboardButton(
+                ("✅ " if active == "this_chat" else "") + "This Chat", callback_data="lb_this_chat"),
+        ]
     ])
-    leaderboard_data = await cursor.to_list(length=10)
-    
-    caption = "<b>TOP 10 GROUPS WHO GUESSED MOST CHARACTERS</b>\n\n"
-    for i, group in enumerate(leaderboard_data, start=1):
-        group_name = html.escape(group.get('group_name', 'Unknown'))[:15] + '...'
-        count = group['count']
-        caption += f'{i}. <b>{group_name}</b> ➾ <b>{count}</b>\n'
 
-    await update_caption(callback_query, caption, "top_group")
+@app.on_message(filters.command("leaderboard"))
+async def leaderboard_command(client, message):
+    await show_leaderboard(client, message, "all_time")
 
-@Client.on_callback_query(filters.regex("^mtop$"))
-async def mtop_callback(client, callback_query):
-    await asyncio.sleep(1)
-    top_users = await user_collection.find().sort("balance", -1).limit(10).to_list(length=10)
+@app.on_callback_query(filters.regex(r"^lb_(\w+)$"))
+async def leaderboard_callback(client, callback_query):
+    filter_key = callback_query.matches[0].group(1)
+    await show_leaderboard(client, callback_query.message, filter_key, callback_query=callback_query)
 
-    caption = "<b>MTOP LEADERBOARD</b>\n\n🏆 Tᴏᴘ 10 Uꜱᴇʀs ʙʏ Cᴏɪɴs:\n\n"
-    for rank, user in enumerate(top_users, start=1):
-        user_id = user.get("id", "Unknown")
-        first_name = user.get("first_name", "Unknown")
-        coins = user.get("balance", 0)
-        caption += f"{rank}. <a href='tg://user?id={user_id}'><b>{first_name}</b></a>: 💸 {coins} Coins\n"
+async def show_leaderboard(client, msg, filter_key, callback_query=None):
+    chat_id = msg.chat.id if hasattr(msg, "chat") else None
+    filter_date = get_time_filter(filter_key)
+    query = {}
 
-    await update_caption(callback_query, caption, "mtop")
+    if filter_key == "this_chat":
+        query["wins"] = {"$elemMatch": {"chat_id": chat_id}}
+    elif filter_date:
+        query["wins"] = {"$elemMatch": {"timestamp": {"$gte": filter_date}}}
 
-@Client.on_callback_query(filters.regex("^tokens$"))
-async def tokens_callback(client, callback_query):
-    await asyncio.sleep(1)
-    top_users = await user_collection.find().sort("tokens", -1).limit(10).to_list(length=10)
+    # Aggregate coins for leaderboard
+    pipeline = []
+    if query:
+        pipeline.append({"$match": query})
+    pipeline.append({"$project": {"id": 1, "first_name": 1, "coins": 1}})
+    pipeline.append({"$sort": {"coins": -1}})
+    pipeline.append({"$limit": 10})
 
-    caption = "<b>Tokens LEADERBOARD</b>\n\n🏆 Tᴏᴘ 10 Uꜱᴇʀs ʙʏ Tokens:\n\n"
-    for rank, user in enumerate(top_users, start=1):
-        user_id = user.get("id", "Unknown")
-        first_name = user.get("first_name", "Unknown")
-        tokens = user.get("tokens", 0)
-        caption += f"{rank}. <a href='tg://user?id={user_id}'><b>{first_name}</b></a>: 🪙 {tokens} Tokens\n"
+    leaderboard = await user_collection.aggregate(pipeline).to_list(length=10)
 
-    await update_caption(callback_query, caption, "tokens")
+    text = f"<b>🏆 Leaderboard ({FILTERS.get(filter_key, 'All Time')})</b>\n\n"
+    for idx, user in enumerate(leaderboard, 1):
+        first_name = html.escape(user.get("first_name", "Unknown"))[:15]
+        coins = user.get("coins", 0)
+        user_id = user.get("id")
+        medal = "👑 " if idx == 1 else ""
+        text += f"{medal}{idx}. <a href='tg://user?id={user_id}'><b>{first_name}</b></a>: {coins} coins\n"
+
+    if callback_query:
+        await callback_query.edit_message_text(
+            text, parse_mode="html", reply_markup=leaderboard_buttons(filter_key))
+    else:
+        await msg.reply_text(
+            text, parse_mode="html", reply_markup=leaderboard_buttons(filter_key))
+            
+            
+            
+
