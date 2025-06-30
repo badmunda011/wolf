@@ -84,11 +84,7 @@ async def show_leaderboard(client, msg, filter_key, callback_query=None):
 
     if callback_query:
         await callback_query.edit_message_text(
-            text, parse_mode="html", reply_markup=leaderboard_buttons(filter_key))
+            text, reply_markup=leaderboard_buttons(filter_key))
     else:
         await msg.reply_text(
-            text, parse_mode="html", reply_markup=leaderboard_buttons(filter_key))
-            
-            
-            
-
+            text, reply_markup=leaderboard_buttons(filter_key))
