@@ -1,12 +1,13 @@
 import json
 import random
 import asyncio
+from TEAMZYRO import *
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 
 # Load words from JSON file
-with open("sukh.sukh.json", "r") as f:
+with open("sukh.json", "r") as f:
     WORDS = set([w.strip().lower() for w in json.load(f)])
 
 games = {}  # chat_id: game_data
