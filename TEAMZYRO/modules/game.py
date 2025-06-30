@@ -74,7 +74,8 @@ async def choose_players_callback(client, cq: CallbackQuery):
         "last_letter": None,
         "timeout_task": None,
         "message_id": None,
-        "scores": {user_id: 0 for user_id in [user_id]}
+        "scores": {user_id: 0 for user_id in [user_id]},
+        "current_turn": None  # Added to track the current turn's player
     }
     msg = await cq.edit_message_text(
         f"🎮 Word Game: {num_players} players mode!\nWaiting for others to join...\nClick below to join!",
@@ -127,6 +128,7 @@ async def start_game(client, chat_id):
     game["used_words"].add(word)
     turn = game["turn"]
     player = game["players"][turn % len(game["players"])]
+    game["current_turn"] = player  # Track current turn's player
     game["turn_start_time"] = asyncio.get_event_loop().time()
     await client.send_message(
         chat_id,
@@ -136,60 +138,66 @@ async def start_game(client, chat_id):
     game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, player, TIMEOUT_SECONDS))
 
 async def word_timeout(client, chat_id, player, timeout):
-    await asyncio.sleep(timeout)
-    if chat_id not in games or games[chat_id]["status"] != "running":
-        return
-    game = games[chat_id]
-    if game.get("timeout_task"):
-        game["timeout_task"].cancel()
-        game["timeout_task"] = None
-    loser = player
-    idx = game["players"].index(loser)
-    # Remove loser from the game for next turn calculation
-    remaining_players = [p for i, p in enumerate(game["players"]) if i != idx]
-    num_players = len(game["players"])
-    winner = None
+    try:
+        await asyncio.sleep(timeout)
+        if chat_id not in games or games[chat_id]["status"] != "running":
+            return
+        game = games[chat_id]
+        # Check if the player is still the current turn's player
+        if game.get("current_turn") != player:
+            return
+        # Cancel timeout task
+        if game.get("timeout_task"):
+            game["timeout_task"] = None
+        loser = player
+        idx = game["players"].index(loser)
+        # Remove loser from the game for next turn calculation
+        remaining_players = [p for i, p in enumerate(game["players"]) if i != idx]
+        num_players = len(game["players"])
+        winner = None
 
-    # Coin/scoring system
-    if num_players == 2:
-        winner = remaining_players[0] if remaining_players else None
-        if winner:
-            game["scores"][winner] += 50
-        game["scores"][loser] = 0
-        score_text = f"{await mention_player(client, winner)} wins and gets 50 coins!\n{await mention_player(client, loser)} gets 0 coins."
-    elif num_players == 4:
-        # Distribute 50 coins by speed
-        turn_end_time = asyncio.get_event_loop().time()
-        game["scores"][loser] = 0
-        winner_idx = (game["turn"] + 1) % len(remaining_players)
-        winner = remaining_players[winner_idx] if remaining_players else None
+        # Coin/scoring system
+        if num_players == 2:
+            winner = remaining_players[0] if remaining_players else None
+            if winner:
+                game["scores"][winner] += 50
+            game["scores"][loser] = 0
+            score_text = f"{await mention_player(client, winner)} wins and gets 50 coins!\n{await mention_player(client, loser)} gets 0 coins."
+        elif num_players == 4:
+            # Distribute 50 coins by speed
+            turn_end_time = asyncio.get_event_loop().time()
+            game["scores"][loser] = 0
+            winner_idx = (game["turn"] + 1) % len(remaining_players)
+            winner = remaining_players[winner_idx] if remaining_players else None
 
-        # Calculate time taken by each player, assign coins
-        total_time = 0
-        times = {}
-        # For this simple version, just assign coins based on turns: whoever played more turns gets more coins
-        for uid in remaining_players:
-            times[uid] = game.get(f"user_time_{uid}", 0)
-            total_time += times[uid]
-        if total_time == 0:
-            # If no time tracked, give 17 coins to each (50/3 rounded)
+            # Calculate time taken by each player, assign coins
+            total_time = 0
+            times = {}
+            # For this simple version, just assign coins based on turns: whoever played more turns gets more coins
             for uid in remaining_players:
-                game["scores"][uid] += 17
+                times[uid] = game.get(f"user_time_{uid}", 0)
+                total_time += times[uid]
+            if total_time == 0:
+                # If no time tracked, give 17 coins to each (50/3 rounded)
+                for uid in remaining_players:
+                    game["scores"][uid] += 17
+            else:
+                for uid in remaining_players:
+                    coins = min(50, max(1, int((1 - (times[uid] / total_time)) * 50)))
+                    game["scores"][uid] += coins
+            score_text = "Coin Distribution:\n"
+            for uid in remaining_players:
+                score_text += f"{await mention_player(client, uid)}: {game['scores'][uid]} coins\n"
+            score_text += f"\n{await mention_player(client, loser)} gets 0 coins."
         else:
-            for uid in remaining_players:
-                coins = min(50, max(1, int((1 - (times[uid] / total_time)) * 50)))
-                game["scores"][uid] += coins
-        score_text = "Coin Distribution:\n"
-        for uid in remaining_players:
-            score_text += f"{await mention_player(client, uid)}: {game['scores'][uid]} coins\n"
-        score_text += f"\n{await mention_player(client, loser)} gets 0 coins."
-    else:
-        score_text = ""
-    await client.send_message(
-        chat_id,
-        f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n{score_text}"
-    )
-    game["status"] = "ended"
+            score_text = ""
+        await client.send_message(
+            chat_id,
+            f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n{score_text}"
+        )
+        game["status"] = "ended"
+    except asyncio.CancelledError:
+        pass  # Handle task cancellation gracefully
 
 async def mention_player(client, user_id):
     user = await client.get_users(user_id)
@@ -245,6 +253,7 @@ async def handle_word(client, message: Message):
         return
     # Next turn
     next_player = game["players"][game["turn"] % num_players]
+    game["current_turn"] = next_player  # Update current turn's player
     await client.send_message(
         chat_id,
         f"<b>{word.capitalize()}</b> accepted!\nNow {await mention_player(client, next_player)}'s turn. Send a word starting with <b>{game['last_letter'].upper()}</b> ({TIMEOUT_SECONDS} seconds!)",
