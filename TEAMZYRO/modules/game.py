@@ -99,7 +99,6 @@ async def start_game(client, chat_id):
     await client.send_message(
         chat_id,
         f"Game started!\nFirst word: <b>{word.capitalize()}</b>\n\n{await mention_player(client, player)}'s turn. Send a word starting with <b>{word[-1].upper()}</b> (15 seconds!)",
-        parse_mode="html"
     )
     game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, player, 15))
 
@@ -110,7 +109,7 @@ async def word_timeout(client, chat_id, player, timeout):
     game = games[chat_id]
     loser = player
     winner = [p for p in game["players"] if p != loser][0]
-    await client.send_message(chat_id, f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n🏆 {await mention_player(client, winner)} wins!", parse_mode="html")
+    await client.send_message(chat_id, f"⏰ <b>Time's up!</b>\n{await mention_player(client, loser)} didn't reply in time.\n🏆 {await mention_player(client, winner)} wins!")
     game["status"] = "ended"
     # Cancel timeout task
     if game.get("timeout_task"):
@@ -159,7 +158,6 @@ async def handle_word(client, message: Message):
     await client.send_message(
         chat_id,
         f"<b>{word.capitalize()}</b> accepted!\nNow {await mention_player(client, next_player)}'s turn. Send a word starting with <b>{game['last_letter'].upper()}</b> (15 seconds!)",
-        parse_mode="html"
     )
     game["timeout_task"] = asyncio.create_task(word_timeout(client, chat_id, next_player, 15))
 
