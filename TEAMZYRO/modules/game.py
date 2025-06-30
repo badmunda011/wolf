@@ -15,6 +15,21 @@ games = {}  # chat_id: game_data
 
 TIMEOUT_SECONDS = 25  # <-- Bas yahan se timeout control hoga
 
+# ----------- COINS UPDATE FUNCTION (NEW) -----------
+from TEAMZYRO import user_collection
+
+async def update_coins(user_id, first_name, coins):
+    await user_collection.update_one(
+        {"id": user_id},
+        {
+            "$set": {"first_name": first_name},
+            "$inc": {"coins": coins}
+        },
+        upsert=True
+    )
+
+# ---------------------------------------------------
+
 def get_random_word(used_words):
     available = [w for w in WORDS if 3 <= len(w) <= 6 and w not in used_words]
     return random.choice(available) if available else None
@@ -161,6 +176,14 @@ async def word_timeout(client, chat_id, player, timeout):
             winner = remaining_players[0] if remaining_players else None
             if winner:
                 game["scores"][winner] += 50
+
+                # --------- DATABASE UPDATE (NEW) -----------
+                user = await client.get_users(winner)
+                await update_coins(winner, user.first_name, 50)
+                loser_user = await client.get_users(loser)
+                await update_coins(loser, loser_user.first_name, 0)
+                # --------------------------------------------
+
             game["scores"][loser] = 0
             score_text = f"{await mention_player(client, winner)} wins and gets 50 coins!\n{await mention_player(client, loser)} gets 0 coins."
         elif num_players == 4:
@@ -173,18 +196,31 @@ async def word_timeout(client, chat_id, player, timeout):
             # Calculate time taken by each player, assign coins
             total_time = 0
             times = {}
-            # For this simple version, just assign coins based on turns: whoever played more turns gets more coins
             for uid in remaining_players:
                 times[uid] = game.get(f"user_time_{uid}", 0)
                 total_time += times[uid]
             if total_time == 0:
-                # If no time tracked, give 17 coins to each (50/3 rounded)
                 for uid in remaining_players:
                     game["scores"][uid] += 17
+
+                    # ------------- DATABASE UPDATE --------------
+                    user = await client.get_users(uid)
+                    await update_coins(uid, user.first_name, 17)
+                    # --------------------------------------------
             else:
                 for uid in remaining_players:
                     coins = min(50, max(1, int((1 - (times[uid] / total_time)) * 50)))
                     game["scores"][uid] += coins
+
+                    # ----------- DATABASE UPDATE -------------
+                    user = await client.get_users(uid)
+                    await update_coins(uid, user.first_name, coins)
+                    # -----------------------------------------
+
+            # Loser gets 0 coins in DB as well
+            loser_user = await client.get_users(loser)
+            await update_coins(loser, loser_user.first_name, 0)
+
             score_text = "Coin Distribution:\n"
             for uid in remaining_players:
                 score_text += f"{await mention_player(client, uid)}: {game['scores'][uid]} coins\n"
@@ -217,7 +253,6 @@ async def handle_word(client, message: Message):
         return
 
     word = message.text.strip().lower()
-    # Only allow words of length 3 to 6, no space allowed, ignore "hello kive a" etc.
     if not (3 <= len(word) <= 6):
         return
     if " " in word:
@@ -249,6 +284,12 @@ async def handle_word(client, message: Message):
     if not possible:
         await message.reply(f"No more possible words!\n🏆 {await mention_player(client, user_id)} wins!")
         game["scores"][user_id] += 50  # winner gets 50
+
+        # -------- DATABASE UPDATE (NEW) ----------
+        user = await client.get_users(user_id)
+        await update_coins(user_id, user.first_name, 50)
+        # -----------------------------------------
+
         game["status"] = "ended"
         return
     # Next turn
