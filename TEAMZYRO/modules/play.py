@@ -55,6 +55,6 @@ async def gameboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 # Register handlers
-application.add_handler(CommandHandler("start", Start))
+application.add_handler(CommandHandler("play", play))
 application.add_handler(CommandHandler("gameboard", gameboard))
 application.add_handler(InlineQueryHandler(inline_query))  # <-- Yeh line add karein!
