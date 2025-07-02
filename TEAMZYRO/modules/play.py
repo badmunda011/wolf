@@ -1,5 +1,9 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, Application
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultGame
+)
+from telegram.ext import (
+    ContextTypes, CommandHandler, Application, InlineQueryHandler
+)
 from TEAMZYRO import application
 
 GAME_SHORT_NAME = "my_html5_game"  # BotFather me registered short name
@@ -11,6 +15,17 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("▶️ Play Now", callback_game={"game_short_name": GAME_SHORT_NAME})]
     ]
     await update.message.reply_game(GAME_SHORT_NAME, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Inline Query Handler for Games
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.inline_query.query  # User ka search query
+    results = [
+        InlineQueryResultGame(
+            id="1",
+            game_short_name=GAME_SHORT_NAME
+        )
+    ]
+    await update.inline_query.answer(results, cache_time=10)
 
 # Game Leaderboard Command
 async def gameboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -40,5 +55,6 @@ async def gameboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 # Register handlers
-application.add_handler(CommandHandler("play", play))
+application.add_handler(CommandHandler("st", st))
 application.add_handler(CommandHandler("gameboard", gameboard))
+application.add_handler(InlineQueryHandler(inline_query))  # <-- Yeh line add karein!
