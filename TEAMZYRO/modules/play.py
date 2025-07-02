@@ -6,7 +6,7 @@ from telegram.ext import (
 )
 from TEAMZYRO import application
 
-GAME_SHORT_NAME = "my_html5_game"  # BotFather me registered short name
+GAME_SHORT_NAME = "wolfgame2025" # BotFather me registered short name
 GAME_URL = "https://yourdomain.com/game/index.html"
 
 # Play Command
