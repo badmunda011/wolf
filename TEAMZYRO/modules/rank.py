@@ -57,22 +57,47 @@ async def leaderboard_callback(client, callback_query):
 async def show_leaderboard(client, msg, filter_key, callback_query=None):
     chat_id = msg.chat.id if hasattr(msg, "chat") else None
     filter_date = get_time_filter(filter_key)
-    query = {}
+    leaderboard_data = []
 
-    if filter_key == "this_chat":
-        query["wins"] = {"$elemMatch": {"chat_id": chat_id}}
-    elif filter_date:
-        query["wins"] = {"$elemMatch": {"timestamp": {"$gte": filter_date}}}
+    # Sabhi users fetch karo
+    users = await user_collection.find({}).to_list(length=0)
+    for user in users:
+        wins = user.get("wins", [])
+        user_coins = 0
 
-    # Aggregate coins for leaderboard
-    pipeline = []
-    if query:
-        pipeline.append({"$match": query})
-    pipeline.append({"$project": {"id": 1, "first_name": 1, "coins": 1}})
-    pipeline.append({"$sort": {"coins": -1}})
-    pipeline.append({"$limit": 10})
+        # Filter lagao har win pe
+        for win in wins:
+            win_time = win.get("timestamp")
+            win_chat = win.get("chat_id")
+            # timestamp field string ho toh parse karo
+            if isinstance(win_time, str):
+                try:
+                    win_time = datetime.fromisoformat(win_time)
+                except Exception:
+                    continue
+            # Filter logic
+            if filter_key == "all_time":
+                user_coins += 1
+            elif filter_key == "today" and win_time and win_time >= filter_date:
+                user_coins += 1
+            elif filter_key == "this_week" and win_time and win_time >= filter_date:
+                user_coins += 1
+            elif filter_key == "this_month" and win_time and win_time >= filter_date:
+                user_coins += 1
+            elif filter_key == "this_year" and win_time and win_time >= filter_date:
+                user_coins += 1
+            elif filter_key == "this_chat" and win_chat == chat_id:
+                user_coins += 1
 
-    leaderboard = await user_collection.aggregate(pipeline).to_list(length=10)
+        if user_coins > 0:
+            leaderboard_data.append({
+                "id": user.get("id"),
+                "first_name": user.get("first_name", "Unknown"),
+                "coins": user_coins
+            })
+
+    # Sort karo sabse jyada coins walo ke hisab se
+    leaderboard = sorted(leaderboard_data, key=lambda x: x["coins"], reverse=True)[:10]
 
     text = f"<b>🏆 Leaderboard ({FILTERS.get(filter_key, 'All Time')})</b>\n\n"
     for idx, user in enumerate(leaderboard, 1):
@@ -82,9 +107,12 @@ async def show_leaderboard(client, msg, filter_key, callback_query=None):
         medal = "👑 " if idx == 1 else ""
         text += f"{medal}{idx}. <a href='tg://user?id={user_id}'><b>{first_name}</b></a>: {coins} coins\n"
 
+    if not leaderboard:
+        text += "Koi record nahi mila."
+
     if callback_query:
         await callback_query.edit_message_text(
-            text, reply_markup=leaderboard_buttons(filter_key))
+            text, reply_markup=leaderboard_buttons(filter_key), disable_web_page_preview=True)
     else:
         await msg.reply_text(
-            text, reply_markup=leaderboard_buttons(filter_key))
+            text, reply_markup=leaderboard_buttons(filter_key), disable_web_page_preview=True)
