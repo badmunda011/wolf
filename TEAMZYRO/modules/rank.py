@@ -24,7 +24,7 @@ def get_time_filter(filter_key):
         return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     elif filter_key == "this_year":
         return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-    return None  # For all_time and this_chat
+    return None
 
 def leaderboard_buttons(active):
     return InlineKeyboardMarkup([
@@ -103,7 +103,7 @@ async def show_leaderboard(client, msg, filter_key, callback_query=None):
             {"$limit": 10}
         ]
 
-    else:  # All Time
+    else:
         pipeline = [
             {
                 "$project": {
@@ -118,7 +118,7 @@ async def show_leaderboard(client, msg, filter_key, callback_query=None):
 
     leaderboard = await user_collection.aggregate(pipeline).to_list(length=10)
 
-    text = f"<b>🏆 Leaderboard ({FILTERS.get(filter_key, 'All Time')})</b>\n\n"
+    text = f"<b>🏆 Word Game Leaderboard ({FILTERS.get(filter_key, 'All Time')})</b>\n\n"
     for idx, user in enumerate(leaderboard, 1):
         first_name = html.escape(user.get("first_name", "Unknown"))[:15]
         coins = user.get("coins", 0)
